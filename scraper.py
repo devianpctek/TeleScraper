@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Created on Wed Nov 27 07:26:34 2019
-
-@author: devian
-"""
-
 import requests, sys, time, os, argparse
 import json
 from urllib.request import urlopen
