@@ -1,5 +1,14 @@
-import requests, sys, time, os, argparse
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Nov 27 07:26:34 2019
 
+@author: devian
+"""
+
+import requests, sys, time, os, argparse
+import json
+from urllib.request import urlopen
 # List of simple to collect features
 snippet_features = ["title",
                     "publishedAt",
@@ -13,12 +22,14 @@ unsafe_characters = ['\n', '"']
 # Used to identify columns, currently hardcoded order
 header = ["video_id"] + snippet_features + ["trending_date", "tags", "view_count", "likes", "dislikes",
                                             "comment_count", "thumbnail_link", "comments_disabled",
-                                            "ratings_disabled", "description"]
+                                            "ratings_disabled", "description","Duration"]
 
+#I declared this as global so I can read it from the duration code
+api_key = ''
 
 def setup(api_path, code_path):
     with open(api_path, 'r') as file:
-        api_key = file.readline()
+        api_key = file.readline().strip()
 
     with open(code_path) as file:
         country_codes = [x.rstrip() for x in file]
@@ -33,10 +44,12 @@ def prepare_feature(feature):
     return f'"{feature}"'
 
 
-def api_request(page_token, country_code):
-    # Builds the URL and requests the JSON from it
-    request_url = f"https://www.googleapis.com/youtube/v3/videos?part=id,statistics,snippet{page_token}chart=mostPopular&regionCode={country_code}&maxResults=50&key={api_key}"
-    request = requests.get(request_url)
+def api_request(page_token, country_code,api):
+    # Builds the URL and requests the JSON from it 
+    request_url = f'https://www.googleapis.com/youtube/v3/videos?part=id,statistics,snippet{page_token}chart=mostPopular&regionCode={country_code}&maxResults=50&key={api_key}'
+    request = requests.get(str(request_url))
+   
+    #print (request.json())
     if request.status_code == 429:
         print("Temp-Banned due to excess requests, please wait and continue later")
         sys.exit()
@@ -49,11 +62,12 @@ def get_tags(tags_list):
 
 
 def get_videos(items):
+    
     lines = []
     for video in items:
         comments_disabled = False
         ratings_disabled = False
-
+        #print (video)
         # We can assume something is wrong with the video if it has no statistics, often this means it has been deleted
         # so we can just skip it
         if "statistics" not in video:
@@ -61,6 +75,14 @@ def get_videos(items):
 
         # A full explanation of all of these features can be found on the GitHub page for this project
         video_id = prepare_feature(video['id'])
+        #----> Video lenght
+        searchUrl="https://www.googleapis.com/youtube/v3/videos?id="+video['id']+"&key="+api_key+"&part=contentDetails"
+        response = urlopen(searchUrl).read()
+        data = json.loads(response)
+        all_data=data['items']
+        contentDetails=all_data[0]['contentDetails']
+        duration=contentDetails['duration']
+        #<------ Video lenght
 
         # Snippet and statistics are sub-dicts of video, containing the most useful info
         snippet = video['snippet']
@@ -95,29 +117,29 @@ def get_videos(items):
         # Compiles all of the various bits of info into one consistently formatted line
         line = [video_id] + features + [prepare_feature(x) for x in [trending_date, tags, view_count, likes, dislikes,
                                                                        comment_count, thumbnail_link, comments_disabled,
-                                                                       ratings_disabled, description]]
+                                                                       ratings_disabled, description, duration]]
         lines.append(",".join(line))
     return lines
 
 
-def get_pages(country_code, next_page_token="&"):
+def get_pages(country_code, next_page_token='&'):
     country_data = []
-
+   
     # Because the API uses page tokens (which are literally just the same function of numbers everywhere) it is much
     # more inconvenient to iterate over pages, but that is what is done here.
     while next_page_token is not None:
         # A page of data i.e. a list of videos and all needed data
-        video_data_page = api_request(next_page_token, country_code)
-
+      
+        video_data_page = api_request(next_page_token, country_code,api_key)
         # Get the next page token and build a string which can be injected into the request with it, unless it's None,
         # then let the whole thing be None so that the loop ends after this cycle
         next_page_token = video_data_page.get("nextPageToken", None)
         next_page_token = f"&pageToken={next_page_token}&" if next_page_token is not None else next_page_token
-
         # Get all of the items as a list and let get_videos return the needed features
         items = video_data_page.get('items', [])
         country_data += get_videos(items)
-
+       
+            
     return country_data
 
 
@@ -132,12 +154,11 @@ def write_to_file(country_code, country_data):
         for row in country_data:
             file.write(f"{row}\n")
 
-
 def get_data():
     for country_code in country_codes:
         country_data = [",".join(header)] + get_pages(country_code)
         write_to_file(country_code, country_data)
-
+        
 
 if __name__ == "__main__":
 
